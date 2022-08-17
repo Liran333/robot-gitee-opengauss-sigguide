@@ -381,7 +381,7 @@ func (bot *robot) getFileOwner(label, fileName, repo string) (sets.String, sets.
 }
 
 func (bot *robot) decodeSigsContent() (*SigYaml, error) {
-	fileContent, err := bot.cli.GetPathContent("new-op", "community", "test2.yaml", "master")
+	fileContent, err := bot.cli.GetPathContent("opengauss", "tc", "gauss_relationship.yaml", "master")
 	if err != nil {
 		return nil, err
 	}
