@@ -17,13 +17,13 @@ import (
 const botName = "sig-guide"
 
 const (
-	forIssueReply = `Hi ***%s***, 
+	forIssueReply = `Hi ***@%s***, 
 if you want to get quick review about your issue, please contact the owner in first: @%s ,
 and then any of the maintainers: @%s
 and then any of the committers: @%s
 if you have any question, please contact the SIG:%s.`
 
-	forPRReply = `Hi ***%s***, 
+	forPRReply = `Hi ***@%s***, 
 if you want to get quick review about your pull request, please contact the owner in first: @%s ,
 and then any of the maintainers: @%s
 and then any of the committers: @%s
@@ -31,7 +31,7 @@ if you have any question, please contact the SIG:%s.`
 
 	sigLink = `[%s](%s)`
 
-	notice = `Hi ***%s***, please use the command '/sig xxx' to add a sig label to this issue.`
+	notice = `Hi ***@%s***, please use the command "/sig xxx" to add a SIG label to this issue.`
 )
 
 var (
