@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"sigs.k8s.io/yaml"
 	"strings"
+	"time"
 
 	"github.com/opensourceways/community-robot-lib/config"
 	framework "github.com/opensourceways/community-robot-lib/robot-gitee-framework"
@@ -113,12 +114,6 @@ func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *l
 	number := e.GetPRNumber()
 	msgs := make([]string, 0)
 
-	// get pr changed files
-	changes, err := bot.cli.GetPullRequestChanges(org, repo, number)
-	if err != nil {
-		return err
-	}
-
 	staleLabels := sets.NewString()
 	for _, label := range e.GetPullRequest().StaleLabels {
 		staleLabels.Insert(label.Name)
@@ -128,6 +123,23 @@ func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *l
 		for l := range v {
 			diffLabels.Insert(l)
 		}
+	}
+
+	copyDiffLabels := diffLabels
+	for d := range copyDiffLabels {
+		if !strings.HasPrefix(d, "sig/") {
+			diffLabels.Delete(d)
+		}
+	}
+
+	if len(diffLabels) == 0 {
+		return nil
+	}
+
+	// get pr changed files
+	changes, err := bot.cli.GetPullRequestChanges(org, repo, number)
+	if err != nil {
+		return err
 	}
 
 	for _, f := range changes {
@@ -168,6 +180,7 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 	number := e.GetIssueNumber()
 	author := e.GetIssueAuthor()
 
+	time.Sleep(100 * time.Millisecond)
 	labels, err := bot.cli.GetIssueLabels(org, repo, number)
 	if err != nil {
 		return err
@@ -215,6 +228,10 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 		}
 	}
 
+	if len(owner) == 0 {
+		owner = append(owner, deOwners.UnsortedList()...)
+	}
+
 	// secondly @ persons to resolve
 	maintainers := make([]string, 0)
 	committers := make([]string, 0)
@@ -248,10 +265,6 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 		sigsLinks = append(sigsLinks, fmt.Sprintf(sigLink, k, v))
 	}
 
-	if len(owner) == 0 {
-		owner = append(owner, deOwners.UnsortedList()...)
-	}
-
 	message := fmt.Sprintf(forIssueReply, author, strings.Join(owner, " , @"),
 		strings.Join(maintainers, " , @"), strings.Join(committers, " , @"),
 		strings.Join(sigsLinks, ""))
@@ -280,6 +293,10 @@ func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels
 			deOwners.Insert(defaultOwners.UnsortedList()...)
 			sigName[sig] = link
 		}
+	}
+
+	if len(owners) == 0 {
+		owners.Insert(deOwners.UnsortedList()...)
 	}
 
 	maintainers := make([]string, 0)
@@ -312,10 +329,6 @@ func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels
 	sigsLinks := make([]string, 0)
 	for k, v := range sigName {
 		sigsLinks = append(sigsLinks, fmt.Sprintf(sigLink, k, v))
-	}
-
-	if len(owners) == 0 {
-		owners.Insert(deOwners.UnsortedList()...)
 	}
 
 	if !diffHasSigLabel {
