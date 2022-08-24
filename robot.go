@@ -180,7 +180,7 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 	number := e.GetIssueNumber()
 	author := e.GetIssueAuthor()
 
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	labels, err := bot.cli.GetIssueLabels(org, repo, number)
 	if err != nil {
 		return err
@@ -215,13 +215,13 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 	}
 
 	// firstly @ who to resolve this problem
-	owner := make([]string, 0)
+	owner := sets.NewString()
 	for _, r := range repositories {
 		for _, rp := range r {
 			for _, rps := range rp.Repo {
 				if repo == rps {
 					for _, o := range rp.Owner {
-						owner = append(owner, o.GiteeID)
+						owner.Insert(o.GiteeID)
 					}
 				}
 			}
@@ -229,32 +229,31 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 	}
 
 	if len(owner) == 0 {
-		owner = append(owner, deOwners.UnsortedList()...)
+		owner.Insert(deOwners.UnsortedList()...)
 	}
 
-	// secondly @ persons to resolve
-	maintainers := make([]string, 0)
-	committers := make([]string, 0)
-	for k := range sigNames {
-		os, cs, err := bot.decodeOWNERSContent(k)
+	maintainers := sets.NewString()
+	committers := sets.NewString()
+	for sn := range sigNames {
+		os, cs, err := bot.decodeOWNERSContent(sn)
 		if err != nil {
 			return err
 		}
 
-		maintainers = append(maintainers, os...)
-		committers = append(committers, cs...)
+		maintainers.Insert(os...)
+		committers.Insert(cs...)
 	}
 
 	// remove duplicate
-	for _, o := range owner {
-		for i, j := range maintainers {
+	for o := range owner {
+		for j := range maintainers {
 			if o == j {
-				maintainers = append(maintainers[:i], maintainers[:i+1]...)
+				maintainers.Delete(j)
 			}
 		}
-		for m, n := range committers {
+		for n := range committers {
 			if o == n {
-				committers = append(committers[:m], committers[:m+1]...)
+				committers.Delete(n)
 			}
 		}
 	}
@@ -265,8 +264,8 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 		sigsLinks = append(sigsLinks, fmt.Sprintf(sigLink, k, v))
 	}
 
-	message := fmt.Sprintf(forIssueReply, author, strings.Join(owner, " , @"),
-		strings.Join(maintainers, " , @"), strings.Join(committers, " , @"),
+	message := fmt.Sprintf(forIssueReply, author, strings.Join(owner.UnsortedList(), " , @"),
+		strings.Join(maintainers.UnsortedList(), " , @"), strings.Join(committers.UnsortedList(), " , @"),
 		strings.Join(sigsLinks, ""))
 
 	return bot.cli.CreateIssueComment(org, repo, number, message)
@@ -299,28 +298,28 @@ func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels
 		owners.Insert(deOwners.UnsortedList()...)
 	}
 
-	maintainers := make([]string, 0)
-	committers := make([]string, 0)
+	maintainers := sets.NewString()
+	committers := sets.NewString()
 	for sn := range sigName {
 		os, cs, err := bot.decodeOWNERSContent(sn)
 		if err != nil {
 			return "", err
 		}
 
-		maintainers = append(maintainers, os...)
-		committers = append(committers, cs...)
+		maintainers.Insert(os...)
+		committers.Insert(cs...)
 	}
 
 	// remove duplicate
 	for o := range owners {
-		for i, j := range maintainers {
+		for j := range maintainers {
 			if o == j {
-				maintainers = append(maintainers[:i], maintainers[:i+1]...)
+				maintainers.Delete(j)
 			}
 		}
-		for m, n := range committers {
+		for n := range committers {
 			if o == n {
-				committers = append(committers[:m], committers[:m+1]...)
+				committers.Delete(n)
 			}
 		}
 	}
@@ -336,8 +335,8 @@ func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels
 	}
 
 	return fmt.Sprintf(forPRReply, author, strings.Join(owners.UnsortedList(), " ,@"),
-		strings.Join(maintainers, " , @"),
-		strings.Join(committers, " , @"),
+		strings.Join(maintainers.UnsortedList(), " , @"),
+		strings.Join(committers.UnsortedList(), " , @"),
 		strings.Join(sigsLinks, "")), nil
 }
 
