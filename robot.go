@@ -22,17 +22,20 @@ const (
 if you want to get quick review about your issue, please contact the owner in first: @%s ,
 and then any of the maintainers: @%s
 and then any of the committers: @%s
-if you have any question, please contact the SIG:%s.`
+if you have any question, please contact the SIG: %s.`
 
 	forPRReply = `Hi ***@%s***, 
 if you want to get quick review about your pull request, please contact the owner in first: @%s ,
 and then any of the maintainers: @%s
 and then any of the committers: @%s
-if you have any question, please contact the SIG:%s.`
+if you have any question, please contact the SIG: %s.`
 
 	sigLink = `[%s](%s)`
 
-	notice = `Hi ***@%s***, please use the command "/sig xxx" to add a SIG label to this issue.`
+	notice = `Hi ***@%s***, please use the command "/sig xxx" to add a SIG label to this issue.
+For example: "/sig sqlengine", "/sig storageengine", "/sig om", "/sig ai".
+You can find more SIG labels from [Here](https://opengauss.org/zh/merber.html#sig).
+If you have no idea about that, please contact with @%s .`
 )
 
 var (
@@ -47,6 +50,7 @@ type iClient interface {
 	GetPullRequestChanges(org, repo string, number int32) ([]sdk.PullRequestFiles, error)
 	AddMultiPRLabel(org, repo string, number int32, label []string) error
 	GetPathContent(org, repo, path, ref string) (sdk.Content, error)
+	AddMultiIssueLabel(org, repo, number string, label []string) error
 }
 
 func newRobot(cli iClient) *robot {
@@ -88,7 +92,62 @@ func (bot *robot) handleIssueEvent(e *sdk.IssueEvent, c config.Config, log *logr
 	author := e.GetIssueAuthor()
 	number := e.GetIssueNumber()
 
-	return bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(notice, author))
+	if repo == "openGauss-server" {
+		_, _, _, _, deOwners, err := bot.genIssueSigLabel(repo)
+		if err != nil {
+			return err
+		}
+		return bot.cli.CreateIssueComment(org, repo, number, fmt.Sprintf(notice, e.GetIssueAuthor(),
+			strings.Join(deOwners.UnsortedList(), " , @")))
+	}
+
+	label, sig, link, firstOwners, deOwners, err := bot.genIssueSigLabel(repo)
+	if err != nil {
+		return err
+	}
+
+	if label == "" || sig == "" || link == "" {
+		return nil
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	err = bot.cli.AddMultiIssueLabel(org, repo, number, []string{label})
+	if err != nil {
+		return err
+	}
+
+	maintainers, committers := sets.NewString(), sets.NewString()
+	ms, cs, err := bot.decodeOWNERSContent(sig)
+	if err != nil {
+		return err
+	}
+	maintainers.Insert(ms...)
+	committers.Insert(cs...)
+
+	if len(firstOwners) == 0 {
+		firstOwners.Insert(deOwners.UnsortedList()...)
+	}
+
+	//remove duplicate
+	for f := range firstOwners {
+		for m := range maintainers {
+			if m == f {
+				maintainers.Delete(m)
+			}
+		}
+
+		for c := range committers {
+			if c == f {
+				committers.Delete(c)
+			}
+		}
+	}
+
+	message := fmt.Sprintf(forIssueReply, author, strings.Join(firstOwners.UnsortedList(), " , @"),
+		strings.Join(maintainers.UnsortedList(), " , @"), strings.Join(committers.UnsortedList(), " , @"),
+		fmt.Sprintf(sigLink, sig, link))
+
+	return bot.cli.CreateIssueComment(org, repo, number, message)
 }
 
 func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *logrus.Entry) error {
@@ -100,6 +159,8 @@ func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *l
 		if err != nil || label == "" {
 			return err
 		}
+
+		time.Sleep(300 * time.Millisecond)
 
 		return bot.cli.AddMultiPRLabel(org, repo, number, []string{label})
 	}
@@ -179,6 +240,10 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 	org, repo := e.GetOrgRepo()
 	number := e.GetIssueNumber()
 	author := e.GetIssueAuthor()
+
+	if repo != "openGauss-server" {
+		return nil
+	}
 
 	time.Sleep(400 * time.Millisecond)
 	labels, err := bot.cli.GetIssueLabels(org, repo, number)
@@ -486,4 +551,46 @@ func (bot *robot) genSigLabel(org, repo string, number int32) (string, error) {
 	}
 
 	return sigLabel, nil
+}
+
+func (bot *robot) genIssueSigLabel(repo string) (string, string, string, sets.String, sets.String, error) {
+	sigs, err := bot.decodeSigsContent()
+	if err != nil {
+		return "", "", "", nil, nil, err
+	}
+
+	sigLabel := ""
+	sig := ""
+	sigLinks := ""
+	firstOwners := sets.NewString()
+	defaultOwners := sets.NewString()
+
+	for _, d := range sigs.DefaultOwners {
+		defaultOwners.Insert(d.GiteeID)
+	}
+
+	for _, s := range sigs.Sigs {
+		if sigLabel != "" {
+			break
+		}
+
+		for _, ss := range s.Repos {
+			for _, r := range ss.Repo {
+				if r == repo {
+					sigLabel = s.SigLabel
+					sig = s.Name
+					sigLinks = s.SigLink
+					for _, o := range ss.Owner {
+						firstOwners.Insert(o.GiteeID)
+					}
+				}
+			}
+		}
+	}
+
+	if sigLabel != "" && sig != "" && sigLinks != "" {
+		return sigLabel, sig, sigLinks, firstOwners, defaultOwners, nil
+	}
+
+	return "", "", "", nil, nil, err
 }
