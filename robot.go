@@ -32,9 +32,9 @@ if you have any question, please contact the SIG: %s.`
 
 	sigLink = `[%s](%s)`
 
-	notice = `Hi ***@%s***, please use the command "/sig xxx" to add a SIG label to this issue.
-For example: "/sig sqlengine", "/sig storageengine", "/sig om", "/sig ai".
-You can find more SIG labels from [Here](https://opengauss.org/zh/merber.html#sig).
+	notice = `Hi ***@%s***, please use the command ***/sig xxx*** to add a SIG label to this issue.
+For example: ***/sig sqlengine*** or ***/sig storageengine*** or ***/sig om*** or ***/sig ai*** and so on.
+You can find more SIG labels from [Here](https://opengauss.org/zh/member.html#sig).
 If you have no idea about that, please contact with @%s .`
 )
 
@@ -110,7 +110,7 @@ func (bot *robot) handleIssueEvent(e *sdk.IssueEvent, c config.Config, log *logr
 		return nil
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(600 * time.Millisecond)
 	err = bot.cli.AddMultiIssueLabel(org, repo, number, []string{label})
 	if err != nil {
 		return err
@@ -129,19 +129,19 @@ func (bot *robot) handleIssueEvent(e *sdk.IssueEvent, c config.Config, log *logr
 	}
 
 	//remove duplicate
-	for f := range firstOwners {
-		for m := range maintainers {
-			if m == f {
-				maintainers.Delete(m)
-			}
-		}
-
-		for c := range committers {
-			if c == f {
-				committers.Delete(c)
-			}
-		}
-	}
+	//for f := range firstOwners {
+	//	for m := range maintainers {
+	//		if m == f {
+	//			maintainers.Delete(m)
+	//		}
+	//	}
+	//
+	//	for c := range committers {
+	//		if c == f {
+	//			committers.Delete(c)
+	//		}
+	//	}
+	//}
 
 	message := fmt.Sprintf(forIssueReply, author, strings.Join(firstOwners.UnsortedList(), " , @"),
 		strings.Join(maintainers.UnsortedList(), " , @"), strings.Join(committers.UnsortedList(), " , @"),
@@ -160,7 +160,7 @@ func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *l
 			return err
 		}
 
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(600 * time.Millisecond)
 
 		return bot.cli.AddMultiPRLabel(org, repo, number, []string{label})
 	}
@@ -310,18 +310,18 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 	}
 
 	// remove duplicate
-	for o := range owner {
-		for j := range maintainers {
-			if o == j {
-				maintainers.Delete(j)
-			}
-		}
-		for n := range committers {
-			if o == n {
-				committers.Delete(n)
-			}
-		}
-	}
+	//for o := range owner {
+	//	for j := range maintainers {
+	//		if o == j {
+	//			maintainers.Delete(j)
+	//		}
+	//	}
+	//	for n := range committers {
+	//		if o == n {
+	//			committers.Delete(n)
+	//		}
+	//	}
+	//}
 
 	// gen hyper link in messages
 	sigsLinks := make([]string, 0)
@@ -376,18 +376,18 @@ func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels
 	}
 
 	// remove duplicate
-	for o := range owners {
-		for j := range maintainers {
-			if o == j {
-				maintainers.Delete(j)
-			}
-		}
-		for n := range committers {
-			if o == n {
-				committers.Delete(n)
-			}
-		}
-	}
+	//for o := range owners {
+	//	for j := range maintainers {
+	//		if o == j {
+	//			maintainers.Delete(j)
+	//		}
+	//	}
+	//	for n := range committers {
+	//		if o == n {
+	//			committers.Delete(n)
+	//		}
+	//	}
+	//}
 
 	// gen hyper link in messages
 	sigsLinks := make([]string, 0)
