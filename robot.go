@@ -51,6 +51,7 @@ type iClient interface {
 	AddMultiPRLabel(org, repo string, number int32, label []string) error
 	GetPathContent(org, repo, path, ref string) (sdk.Content, error)
 	AddMultiIssueLabel(org, repo, number string, label []string) error
+	RemovePRLabels(org, repo string, number int32, labels []string) error
 }
 
 func newRobot(cli iClient) *robot {
@@ -160,9 +161,13 @@ func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *l
 			return err
 		}
 
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(700 * time.Millisecond)
 
 		return bot.cli.AddMultiPRLabel(org, repo, number, []string{label})
+	}
+
+	if sdk.GetPullRequestAction(e) == sdk.PRActionChangedSourceBranch {
+		return bot.dealPRPush(e)
 	}
 
 	// when pr's label has been changed
@@ -232,229 +237,14 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 		return nil
 	}
 
-	comment := e.GetComment().GetBody()
-	if !sigLabelRegex.MatchString(comment) {
-		return nil
-	}
-
-	org, repo := e.GetOrgRepo()
-	number := e.GetIssueNumber()
-	author := e.GetIssueAuthor()
-
-	if repo != "openGauss-server" {
-		return nil
-	}
-
-	time.Sleep(400 * time.Millisecond)
-	labels, err := bot.cli.GetIssueLabels(org, repo, number)
-	if err != nil {
-		return err
-	}
-
-	sigNames := make(map[string]string, 0)
-	// var repositories []RepoMember
-	repositories := make(map[string][]RepoMember, 0)
-	deOwners := sets.NewString()
-	for _, l := range labels {
-		if len(sigNames) > 0 {
-			break
-		}
-
-		if strings.HasPrefix(l.Name, "sig/") {
-			sigs, err := bot.decodeSigsContent()
-			if err != nil {
-				return err
-			}
-
-			for _, d := range sigs.DefaultOwners {
-				deOwners.Insert(d.GiteeID)
-			}
-
-			for _, sig := range sigs.Sigs {
-				if l.Name == sig.SigLabel {
-					sigNames[sig.Name] = sig.SigLink
-					repositories[sig.Name] = sig.Repos
-				}
-			}
-		}
-	}
-
-	// firstly @ who to resolve this problem
-	owner := sets.NewString()
-	for _, r := range repositories {
-		for _, rp := range r {
-			for _, rps := range rp.Repo {
-				if repo == rps {
-					for _, o := range rp.Owner {
-						owner.Insert(o.GiteeID)
-					}
-				}
-			}
-		}
-	}
-
-	if len(owner) == 0 {
-		owner.Insert(deOwners.UnsortedList()...)
-	}
-
-	maintainers := sets.NewString()
-	committers := sets.NewString()
-	for sn := range sigNames {
-		os, cs, err := bot.decodeOWNERSContent(sn)
+	if e.IsIssue() {
+		err := bot.dealIssueNote(e)
 		if err != nil {
 			return err
 		}
-
-		maintainers.Insert(os...)
-		committers.Insert(cs...)
 	}
 
-	// remove duplicate
-	//for o := range owner {
-	//	for j := range maintainers {
-	//		if o == j {
-	//			maintainers.Delete(j)
-	//		}
-	//	}
-	//	for n := range committers {
-	//		if o == n {
-	//			committers.Delete(n)
-	//		}
-	//	}
-	//}
-
-	// gen hyper link in messages
-	sigsLinks := make([]string, 0)
-	for k, v := range sigNames {
-		sigsLinks = append(sigsLinks, fmt.Sprintf(sigLink, k, v))
-	}
-
-	message := fmt.Sprintf(forIssueReply, author, strings.Join(owner.UnsortedList(), " , @"),
-		strings.Join(maintainers.UnsortedList(), " , @"), strings.Join(committers.UnsortedList(), " , @"),
-		strings.Join(sigsLinks, ""))
-
-	return bot.cli.CreateIssueComment(org, repo, number, message)
-}
-
-func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels sets.String) (string, error) {
-	owners := sets.NewString()
-	sigName := make(map[string]string, 0)
-	deOwners := sets.NewString()
-	diffHasSigLabel := false
-	for l := range labels {
-		if len(owners) > 0 {
-			break
-		}
-
-		if strings.HasPrefix(l, "sig/") {
-			diffHasSigLabel = true
-			fileOwner, defaultOwners, sig, link, err := bot.getFileOwner(l, fmt.Sprintf("%s/%s", repo, fileName), repo)
-			if err != nil {
-				return "", err
-			}
-
-			owners.Insert(fileOwner.UnsortedList()...)
-			deOwners.Insert(defaultOwners.UnsortedList()...)
-			sigName[sig] = link
-		}
-	}
-
-	if len(owners) == 0 {
-		owners.Insert(deOwners.UnsortedList()...)
-	}
-
-	maintainers := sets.NewString()
-	committers := sets.NewString()
-	for sn := range sigName {
-		os, cs, err := bot.decodeOWNERSContent(sn)
-		if err != nil {
-			return "", err
-		}
-
-		maintainers.Insert(os...)
-		committers.Insert(cs...)
-	}
-
-	// remove duplicate
-	//for o := range owners {
-	//	for j := range maintainers {
-	//		if o == j {
-	//			maintainers.Delete(j)
-	//		}
-	//	}
-	//	for n := range committers {
-	//		if o == n {
-	//			committers.Delete(n)
-	//		}
-	//	}
-	//}
-
-	// gen hyper link in messages
-	sigsLinks := make([]string, 0)
-	for k, v := range sigName {
-		sigsLinks = append(sigsLinks, fmt.Sprintf(sigLink, k, v))
-	}
-
-	if !diffHasSigLabel {
-		return "", nil
-	}
-
-	return fmt.Sprintf(forPRReply, author, strings.Join(owners.UnsortedList(), " ,@"),
-		strings.Join(maintainers.UnsortedList(), " , @"),
-		strings.Join(committers.UnsortedList(), " , @"),
-		strings.Join(sigsLinks, "")), nil
-}
-
-func (bot *robot) getFileOwner(label, fileName, repo string) (sets.String, sets.String, string, string, error) {
-	sigs, err := bot.decodeSigsContent()
-	if err != nil {
-		return nil, nil, "", "", err
-	}
-
-	sigName := ""
-	link := ""
-
-	defaultOwners := sets.NewString()
-	for _, d := range sigs.DefaultOwners {
-		defaultOwners.Insert(d.GiteeID)
-	}
-
-	var sig Sig
-	for _, s := range sigs.Sigs {
-		if label == s.SigLabel {
-			sig = s
-			sigName = s.Name
-			link = s.SigLink
-		}
-	}
-
-	first := sets.NewString()
-	for _, s := range sig.Files {
-		if len(first) > 0 {
-			break
-		}
-		for _, ff := range s.File {
-			if ff == fileName {
-				for _, o := range s.Owner {
-					first.Insert(o.GiteeID)
-				}
-			}
-		}
-	}
-
-	if len(first) == 0 {
-		for _, r := range sig.Repos {
-			for _, rp := range r.Repo {
-				if rp == repo {
-					for _, o := range r.Owner {
-						first.Insert(o.GiteeID)
-					}
-				}
-			}
-		}
-	}
-
-	return first, defaultOwners, sigName, link, nil
+	return nil
 }
 
 func (bot *robot) decodeSigsContent() (*SigYaml, error) {
@@ -503,94 +293,4 @@ func (bot *robot) decodeOWNERSContent(sigName string) ([]string, []string, error
 	committer := o.Committers
 
 	return owner, committer, nil
-}
-
-func (bot *robot) genSigLabel(org, repo string, number int32) (string, error) {
-	changes, err := bot.cli.GetPullRequestChanges(org, repo, number)
-	if err != nil {
-		return "", err
-	}
-
-	sigs, err := bot.decodeSigsContent()
-	if err != nil {
-		return "", err
-	}
-
-	sigLabel := ""
-	for _, c := range changes {
-		if sigLabel != "" {
-			break
-		}
-		for _, s := range sigs.Sigs {
-			for _, f := range s.Files {
-				for _, ff := range f.File {
-					if fmt.Sprintf("%s/%s", repo, c.Filename) == ff {
-						sigLabel = s.SigLabel
-					}
-				}
-			}
-		}
-	}
-
-	if sigLabel != "" {
-		return sigLabel, nil
-	}
-
-	for _, s := range sigs.Sigs {
-		if sigLabel != "" {
-			break
-		}
-
-		for _, r := range s.Repos {
-			for _, rr := range r.Repo {
-				if repo == rr {
-					sigLabel = s.SigLabel
-				}
-			}
-		}
-	}
-
-	return sigLabel, nil
-}
-
-func (bot *robot) genIssueSigLabel(repo string) (string, string, string, sets.String, sets.String, error) {
-	sigs, err := bot.decodeSigsContent()
-	if err != nil {
-		return "", "", "", nil, nil, err
-	}
-
-	sigLabel := ""
-	sig := ""
-	sigLinks := ""
-	firstOwners := sets.NewString()
-	defaultOwners := sets.NewString()
-
-	for _, d := range sigs.DefaultOwners {
-		defaultOwners.Insert(d.GiteeID)
-	}
-
-	for _, s := range sigs.Sigs {
-		if sigLabel != "" {
-			break
-		}
-
-		for _, ss := range s.Repos {
-			for _, r := range ss.Repo {
-				if r == repo {
-					sigLabel = s.SigLabel
-					sig = s.Name
-					sigLinks = s.SigLink
-					for _, o := range ss.Owner {
-						firstOwners.Insert(o.GiteeID)
-					}
-				}
-			}
-		}
-	}
-
-	if sigLabel != "" && sig != "" && sigLinks != "" {
-		return sigLabel, sig, sigLinks, firstOwners, defaultOwners, nil
-	}
-
-	return "", "", "", nil, nil, err
 }
