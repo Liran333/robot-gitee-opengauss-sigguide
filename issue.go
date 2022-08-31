@@ -76,13 +76,13 @@ func (bot *robot) dealIssueNote(e *sdk.NoteEvent) error {
 	// firstly @ who to resolve this problem
 	owner := sets.NewString()
 	for _, r := range repositories {
+		if len(owner) > 0 {
+			break
+		}
+		
 		for _, rp := range r {
-			for _, rps := range rp.Repo {
-				if repo == rps {
-					for _, o := range rp.Owner {
-						owner.Insert(o.GiteeID)
-					}
-				}
+			for _, o := range rp.Owner {
+				owner.Insert(o.GiteeID)
 			}
 		}
 	}
