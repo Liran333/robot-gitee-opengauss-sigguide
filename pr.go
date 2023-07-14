@@ -99,7 +99,7 @@ import (
 //	return bot.cli.CreatePRComment(org, repo, e.GetPRNumber(), message)
 //}
 
-func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels sets.String) (string, error) {
+func (bot *robot) genSpecialWelcomeMessage(bc *botConfig, org, repo, author, fileName string, labels sets.String) (string, error) {
 	owners := sets.NewString()
 	sigName := make(map[string]string, 0)
 	deOwners := sets.NewString()
@@ -129,6 +129,17 @@ func (bot *robot) genSpecialWelcomeMessage(repo, author, fileName string, labels
 	maintainers := sets.NewString()
 	committers := sets.NewString()
 	for sn := range sigName {
+		if bc.CustomizeMembers {
+			os, cs, err := bot.decodeSpecialOWNERSContent(sn, org, repo)
+			if err != nil {
+				return "", err
+			}
+
+			maintainers.Insert(os...)
+			committers.Insert(cs...)
+			continue
+		}
+
 		os, cs, err := bot.decodeOWNERSContent(sn)
 		if err != nil {
 			return "", err

@@ -93,6 +93,8 @@ func (bot *robot) handleIssueEvent(e *sdk.IssueEvent, c config.Config, log *logr
 	author := e.GetIssueAuthor()
 	number := e.GetIssueNumber()
 
+	bc, _ := bot.getConfig(c, org, repo)
+
 	if repo == "openGauss-server" {
 		_, _, _, _, deOwners, err := bot.genIssueSigLabel(repo)
 		if err != nil {
@@ -118,12 +120,21 @@ func (bot *robot) handleIssueEvent(e *sdk.IssueEvent, c config.Config, log *logr
 	}
 
 	maintainers, committers := sets.NewString(), sets.NewString()
-	ms, cs, err := bot.decodeOWNERSContent(sig)
-	if err != nil {
-		return err
+	if bc.CustomizeMembers {
+		ms, cs, err := bot.decodeSpecialOWNERSContent(sig, org, repo)
+		if err != nil {
+			return err
+		}
+		maintainers.Insert(ms...)
+		committers.Insert(cs...)
+	} else {
+		ms, cs, err := bot.decodeOWNERSContent(sig)
+		if err != nil {
+			return err
+		}
+		maintainers.Insert(ms...)
+		committers.Insert(cs...)
 	}
-	maintainers.Insert(ms...)
-	committers.Insert(cs...)
 
 	if len(firstOwners) == 0 {
 		firstOwners.Insert(deOwners.UnsortedList()...)
@@ -180,6 +191,8 @@ func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *l
 	number := e.GetPRNumber()
 	msgs := make([]string, 0)
 
+	bc, _ := bot.getConfig(c, org, repo)
+
 	staleLabels := sets.NewString()
 	for _, label := range e.GetPullRequest().StaleLabels {
 		staleLabels.Insert(label.Name)
@@ -212,7 +225,7 @@ func (bot *robot) handlePREvent(e *sdk.PullRequestEvent, c config.Config, log *l
 		if len(msgs) > 0 {
 			break
 		}
-		msg, err := bot.genSpecialWelcomeMessage(repo, author, f.Filename, diffLabels)
+		msg, err := bot.genSpecialWelcomeMessage(bc, org, repo, author, f.Filename, diffLabels)
 		if err != nil {
 			return err
 		}
@@ -238,7 +251,9 @@ func (bot *robot) handleNoteEvent(e *sdk.NoteEvent, c config.Config, log *logrus
 	}
 
 	if e.IsIssue() {
-		err := bot.dealIssueNote(e)
+		org, repo := e.GetOrgRepo()
+		bc, _ := bot.getConfig(c, org, repo)
+		err := bot.dealIssueNote(e, bc)
 		if err != nil {
 			return err
 		}
@@ -278,11 +293,6 @@ func (bot *robot) decodeOWNERSContent(sigName string) ([]string, []string, error
 		return nil, nil, err
 	}
 
-	type OWNERS struct {
-		Maintainers []string `json:"maintainers,omitempty"`
-		Committers  []string `json:"committers,omitempty"`
-	}
-
 	var o OWNERS
 	err = yaml.Unmarshal(c, &o)
 	if err != nil {
@@ -291,6 +301,45 @@ func (bot *robot) decodeOWNERSContent(sigName string) ([]string, []string, error
 
 	owner := o.Maintainers
 	committer := o.Committers
+
+	return owner, committer, nil
+}
+
+func (bot *robot) decodeSpecialOWNERSContent(sigName, org, repo string) ([]string, []string, error) {
+	fileContent, err := bot.cli.GetPathContent("opengauss", "tc", fmt.Sprintf("sigs/%s/OWNERS", sigName), "master")
+	if err != nil {
+		return nil, nil, err
+	}
+
+	c, err := base64.StdEncoding.DecodeString(fileContent.Content)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var o SpecialOWNERS
+	err = yaml.Unmarshal(c, &o)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var owner []string
+	var committer []string
+	p := fmt.Sprintf("%s/%s", org, repo)
+	for _, v := range o.Repositories {
+		for _, k := range v.Repo {
+			if k == p {
+				owner = v.Maintainers
+			}
+		}
+	}
+
+	for _, v := range o.Repositories {
+		for _, k := range v.Repo {
+			if k == p {
+				committer = v.Committers
+			}
+		}
+	}
 
 	return owner, committer, nil
 }
