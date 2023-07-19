@@ -29,3 +29,20 @@ type Member struct {
 	Organization string `json:"organization,omitempty"`
 	Email        string `json:"email,omitempty"`
 }
+
+type OWNERS struct {
+	Maintainers []string `json:"maintainers,omitempty"`
+	Committers  []string `json:"committers,omitempty"`
+}
+
+type SpecialOWNERS struct {
+	// Maintainers  []string `json:"maintainers,omitempty"`
+	// Committers   []string `json:"committers,omitempty"`
+	Repositories []SpecialRepoMember
+}
+
+type SpecialRepoMember struct {
+	Repo        []string `json:"repo,omitempty"`
+	Maintainers []string `json:"maintainers,omitempty"`
+	Committers  []string `json:"committers,omitempty"`
+}

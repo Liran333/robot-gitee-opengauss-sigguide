@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func (bot *robot) dealIssueNote(e *sdk.NoteEvent) error {
+func (bot *robot) dealIssueNote(e *sdk.NoteEvent, c *botConfig) error {
 	comment := e.GetComment().GetBody()
 	if !sigLabelRegex.MatchString(comment) {
 		return nil
@@ -79,7 +79,7 @@ func (bot *robot) dealIssueNote(e *sdk.NoteEvent) error {
 		if len(owner) > 0 {
 			break
 		}
-		
+
 		for _, rp := range r {
 			for _, o := range rp.Owner {
 				owner.Insert(o.GiteeID)
@@ -94,6 +94,17 @@ func (bot *robot) dealIssueNote(e *sdk.NoteEvent) error {
 	maintainers := sets.NewString()
 	committers := sets.NewString()
 	for sn := range sigNames {
+		if c.CustomizeMembers {
+			os, cs, err := bot.decodeSpecialOWNERSContent(sn, org, repo)
+			if err != nil {
+				return err
+			}
+
+			maintainers.Insert(os...)
+			committers.Insert(cs...)
+			continue
+		}
+
 		os, cs, err := bot.decodeOWNERSContent(sn)
 		if err != nil {
 			return err

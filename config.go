@@ -54,6 +54,9 @@ func (c *configuration) SetDefault() {
 
 type botConfig struct {
 	config.RepoFilter
+
+	// CustomizeMembers means use a new maintainers' and committers' relationship of repositories
+	CustomizeMembers bool `json:"customize_members,omitempty"`
 }
 
 func (c *botConfig) setDefault() {
